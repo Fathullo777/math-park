@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Математический парк развлечений</title>
+  <meta name="description" content="Весёлый математический парк для учеников младших классов: аттракционы, игры и сертификат." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@500;600;700&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="world" aria-hidden="true">
+    <div class="sky-layer"></div>
+    <div class="sun"></div>
+    <div class="cloud c1"></div>
+    <div class="cloud c2"></div>
+    <div class="cloud c3"></div>
+    <div class="balloon b1">🎈</div>
+    <div class="balloon b2">🎈</div>
+    <div class="balloon b3">🎈</div>
+    <div class="ferris">
+      <div class="ferris-wheel"></div>
+    </div>
+    <div class="hills"></div>
+  </div>
+
+  <div class="fx-layer" id="fx-layer" aria-hidden="true"></div>
+
+  <div class="app-shell">
+    <header class="hero">
+      <button type="button" class="sound-btn" id="sound-btn" aria-pressed="true" title="Звук">🔊</button>
+
+      <div class="ticket pop-in">
+        <span class="ticket-emoji">🎟️</span>
+        <span>Привет! Здесь математика — как в парке!</span>
+      </div>
+
+      <div class="brand pop-in">
+        <p class="brand-kicker">для 1–4 класса</p>
+        <h1 class="park-title">
+          <span>Математический</span>
+          <span>парк развлечений</span>
+        </h1>
+      </div>
+
+      <div class="mascot pop-in" aria-hidden="true">
+        <div class="mascot-bubble" id="mascot-bubble">Давай играть!</div>
+        <div class="mascot-body">🦊</div>
+      </div>
+    </header>
+
+    <nav class="nav-bar" aria-label="Меню">
+      <button type="button" class="nav-chip active" data-section="home"><span>🏠</span><b>Старт</b></button>
+      <button type="button" class="nav-chip" data-section="attractions"><span>⭐</span><b>Аттракционы</b></button>
+      <button type="button" class="nav-chip" data-section="facts"><span>💡</span><b>Факты</b></button>
+      <button type="button" class="nav-chip" data-section="games"><span>🎮</span><b>Игры</b></button>
+      <button type="button" class="nav-chip" data-section="quiz"><span>🏆</span><b>Викторина</b></button>
+      <button type="button" class="nav-chip" data-section="answers"><span>🔑</span><b>Ответы</b></button>
+      <button type="button" class="nav-chip" data-section="about"><span>💖</span><b>О парке</b></button>
+    </nav>
+
+    <div class="hud">
+      <label class="hud-name">
+        <span>Твоё имя</span>
+        <input id="player-name" type="text" maxlength="24" placeholder="Напиши имя" autocomplete="nickname" />
+      </label>
+      <div class="hud-stat stars-stat">
+        <span class="hud-label">Звёзды</span>
+        <strong id="stars-value">☆☆☆☆☆</strong>
+      </div>
+      <div class="hud-stat">
+        <span class="hud-label">Очки</span>
+        <strong id="score-value">0</strong>
+      </div>
+      <div class="hud-stat streak-stat">
+        <span class="hud-label">Серия</span>
+        <strong id="streak-value">🔥 0</strong>
+      </div>
+      <div class="hud-stat">
+        <span class="hud-label">Путь</span>
+        <strong id="attr-progress">0/5</strong>
+      </div>
+    </div>
+
+    <main>
+      <section id="home" class="section active">
+        <div class="welcome-board">
+          <div class="welcome-text">
+            <h2>Добро пожаловать в парк!</h2>
+            <p>Ходи по аттракционам, решай лёгкие примеры, собирай звёзды и стань чемпионом!</p>
+            <ol class="how-to">
+              <li><span>1</span> Напиши своё имя</li>
+              <li><span>2</span> Пройди 5 аттракционов</li>
+              <li><span>3</span> Открой дворец и получи диплом</li>
+            </ol>
+          </div>
+          <div class="welcome-art" aria-hidden="true">
+            <div class="spin-ride">🎡</div>
+            <div class="bounce-ride">🎢</div>
+          </div>
+        </div>
+
+        <div class="path-title">Выбери аттракцион</div>
+        <div class="attractions-grid" id="attractions-grid"></div>
+
+        <div class="bottom-row">
+          <article class="panel map-panel">
+            <h2>🗺️ Карта парка</h2>
+            <div class="park-map" id="park-map"></div>
+            <p class="hint">Зажги все огоньки — и дворец откроется!</p>
+          </article>
+
+          <article class="panel palace-panel">
+            <h2>🏰 Дворец победителей</h2>
+            <div class="palace-art">
+              <span class="float-ico">🏆</span>
+              <span class="float-ico delay">👑</span>
+              <span class="float-ico delay2">🥇</span>
+            </div>
+            <div class="lock-meter">
+              <div class="lock-fill" id="lock-fill"></div>
+            </div>
+            <p id="palace-status">Пройди все аттракционы.</p>
+            <button type="button" class="btn btn-gold" id="open-quiz-btn" disabled>
+              Открыть викторину
+            </button>
+          </article>
+
+          <article class="panel cert-panel" id="certificate-card">
+            <h2>📜 Диплом</h2>
+            <div class="certificate" id="certificate-view">
+              <p class="cert-empty">Диплом появится после викторины.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="attractions" class="section">
+        <div class="section-head">
+          <h2>Аттракционы</h2>
+          <p>Нажми на карточку и решай примеры по одному!</p>
+        </div>
+        <div class="attractions-grid" id="attractions-grid-2"></div>
+      </section>
+
+      <section id="facts" class="section">
+        <div class="section-head">
+          <h2>Интересные факты</h2>
+          <p>Листай карточки — там сюрпризы про числа!</p>
+        </div>
+        <div class="facts-grid" id="facts-grid"></div>
+      </section>
+
+      <section id="games" class="section">
+        <div class="section-head">
+          <h2>Игры</h2>
+          <p>Тренируйся и зарабатывай ещё очки.</p>
+        </div>
+        <div class="games-grid" id="games-grid"></div>
+      </section>
+
+      <section id="quiz" class="section">
+        <div class="section-head">
+          <h2>Финальная викторина</h2>
+          <p>5 вопросов — и диплом чемпиона!</p>
+        </div>
+        <div class="panel quiz-panel" id="quiz-panel">
+          <div class="locked-box" id="quiz-locked">
+            <div class="lock-ico">🔒</div>
+            <p>Сначала пройди все 5 аттракционов на карте.</p>
+          </div>
+          <div id="quiz-play" class="hidden"></div>
+          <div id="quiz-result" class="hidden"></div>
+        </div>
+      </section>
+
+      <section id="answers" class="section">
+        <div class="section-head">
+          <h2>Книга ответов</h2>
+          <p>Только для учителя или родителя — чтобы проверить ребёнка</p>
+        </div>
+        <div class="panel answers-panel">
+          <div id="answers-lock" class="answers-lock">
+            <div class="lock-ico">🔐</div>
+            <p>Ответы спрятаны, чтобы было честно играть.</p>
+            <p class="answers-hint">Введи код учителя:</p>
+            <div class="pin-row">
+              <input id="answers-pin" type="password" inputmode="numeric" maxlength="8" placeholder="••••" />
+              <button type="button" class="btn btn-gold" id="answers-unlock-btn">Открыть</button>
+            </div>
+            <p id="answers-error" class="answers-error hidden"></p>
+          </div>
+          <div id="answers-book" class="answers-book hidden"></div>
+          <button type="button" class="btn btn-outline hidden" id="answers-hide-btn">Скрыть ответы снова</button>
+        </div>
+      </section>
+
+      <section id="about" class="section">
+        <div class="section-head">
+          <h2>О парке</h2>
+        </div>
+        <article class="panel about-panel" id="about-panel"></article>
+        <div class="about-actions">
+          <button type="button" class="btn btn-outline" id="reset-btn">Начать сначала</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Математический парк развлечений</span>
+      <span>Учись играя 🌈</span>
+    </footer>
+  </div>
+
+  <div class="modal-backdrop hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal">
+      <button type="button" class="modal-close" id="modal-close" aria-label="Закрыть">×</button>
+      <div class="modal-top">
+        <div class="modal-emoji" id="modal-emoji">✨</div>
+        <h2 id="modal-title"></h2>
+      </div>
+      <div class="step-dots" id="step-dots"></div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="js/content.js"></script>
+  <script src="js/local-api.js"></script>
+  <script src="js/app.js" defer></script>
+</body>
+</html>
