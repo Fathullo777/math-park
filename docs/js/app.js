@@ -1063,7 +1063,6 @@
     state.facts = data.facts;
     state.games = data.games;
     state.attractions = data.attractions;
-    $('#about-text').innerHTML = `${data.about.text} Парк создала: <strong>${data.about.author}</strong>. Учителям: ответы — код <strong>1234</strong>.`;
     setProgress(data.progress);
     showView('park');
     say('Поехали по порядку!');
