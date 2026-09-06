@@ -9,8 +9,11 @@
     audio: null,
     streak: 0,
     bestStreak: 0,
+    journey: { factsDone: false, gamesDone: false },
+    quizSession: false,
   };
 
+  const JOURNEY_KEY = 'math_park_journey_v1';
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -22,24 +25,21 @@
     gift: '🎁',
   };
 
-  const praise = [
-    'Молодец!',
-    'Супер!',
-    'Умница!',
-    'Отлично!',
-    'Так держать!',
-    'Ты звезда!',
-  ];
+  const praise = ['Молодец!', 'Супер!', 'Умница!', 'Отлично!', 'Так держать!', 'Ты звезда!'];
 
-  const mapPositions = [
-    { left: '8%', top: '62%' },
-    { left: '28%', top: '48%' },
-    { left: '48%', top: '64%' },
-    { left: '66%', top: '40%' },
-    { left: '82%', top: '56%' },
-  ];
+  function loadJourney() {
+    try {
+      return { factsDone: false, gamesDone: false, ...JSON.parse(localStorage.getItem(JOURNEY_KEY) || '{}') };
+    } catch {
+      return { factsDone: false, gamesDone: false };
+    }
+  }
 
-  /* ---------- Sound (Web Audio, no files) ---------- */
+  function saveJourney() {
+    localStorage.setItem(JOURNEY_KEY, JSON.stringify(state.journey));
+  }
+
+  /* ---------- Sound ---------- */
   function ensureAudio() {
     if (!state.audio) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -77,10 +77,8 @@
     if (kind === 'win') {
       [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'sine', 0.05), i * 90));
     }
-    if (kind === 'star') beep(880, 0.12, 'square', 0.025);
   }
 
-  /* ---------- FX ---------- */
   function confetti(count = 48) {
     const layer = $('#fx-layer');
     const colors = ['#ff6b6b', '#ffd43b', '#69db7c', '#74c0fc', '#b197fc', '#ff922b'];
@@ -90,27 +88,16 @@
       el.style.left = `${Math.random() * 100}%`;
       el.style.background = colors[i % colors.length];
       el.style.animationDuration = `${1.6 + Math.random() * 1.6}s`;
-      el.style.transform = `rotate(${Math.random() * 360}deg)`;
       layer.appendChild(el);
       setTimeout(() => el.remove(), 3200);
     }
   }
 
-  function flyScore(text, x, y) {
-    const el = document.createElement('div');
-    el.className = 'score-fly';
-    el.textContent = text;
-    el.style.left = `${x}px`;
-    el.style.top = `${y}px`;
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 1000);
-  }
-
   function say(msg) {
     const bubble = $('#mascot-bubble');
+    if (!bubble) return;
     bubble.textContent = msg;
     bubble.style.animation = 'none';
-    // eslint-disable-next-line no-unused-expressions
     bubble.offsetHeight;
     bubble.style.animation = 'popStar .45s ease';
   }
@@ -128,13 +115,9 @@
   }
 
   function bumpStreak(ok) {
-    if (ok) {
-      state.streak += 1;
-      state.bestStreak = Math.max(state.bestStreak, state.streak);
-      if (state.streak >= 3) say(`Серия ×${state.streak}!`);
-    } else {
-      state.streak = 0;
-    }
+    state.streak = ok ? state.streak + 1 : 0;
+    if (ok) state.bestStreak = Math.max(state.bestStreak, state.streak);
+    if (ok && state.streak >= 3) say(`Серия ×${state.streak}!`);
     const el = $('#streak-value');
     if (el) {
       el.textContent = `🔥 ${state.streak}`;
@@ -155,43 +138,12 @@
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   }
 
-  /* ---------- API (локально для GitHub Pages) ---------- */
   async function api(path, options = {}) {
-    try {
-      return await window.ParkLocalAPI.handle(path, options);
-    } catch (err) {
-      if (!err.status) {
-        err.status = 500;
-        err.message = err.message || 'Что-то пошло не так';
-      }
-      throw err;
-    }
+    return window.ParkLocalAPI.handle(path, options);
   }
 
-  /* ---------- Progress UI ---------- */
   function starString(n) {
     return '★'.repeat(n) + '☆'.repeat(Math.max(0, 5 - n));
-  }
-
-  function setProgress(progress) {
-    state.progress = progress;
-    const scoreEl = $('#score-value');
-    const next = progress.score || 0;
-    animateNumber(scoreEl, Number(scoreEl.textContent) || 0, next);
-    $('#attr-progress').textContent = `${progress.completedCount}/${progress.totalAttractions}`;
-    $('#stars-value').textContent = starString(progress.completedCount || 0);
-    const nameInput = $('#player-name');
-    if (document.activeElement !== nameInput) nameInput.value = progress.name || '';
-
-    const fill = $('#lock-fill');
-    const pct = ((progress.completedCount || 0) / (progress.totalAttractions || 5)) * 100;
-    fill.style.width = `${pct}%`;
-
-    renderMap();
-    renderCertificate();
-    updatePalace();
-    updateQuizLock();
-    renderAttractionCards();
   }
 
   function animateNumber(el, from, to) {
@@ -200,77 +152,60 @@
       return;
     }
     const start = performance.now();
-    const dur = 450;
     const step = (t) => {
-      const p = Math.min(1, (t - start) / dur);
+      const p = Math.min(1, (t - start) / 450);
       el.textContent = Math.round(from + (to - from) * p);
       if (p < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
   }
 
-  function renderAttractionCards() {
-    const html = state.attractions
-      .map((a) => {
-        const done = state.progress?.attractions?.[a.id]?.completed;
-        return `
-        <button type="button" class="ride-card theme-${a.theme} ${done ? 'done' : ''}" data-open-attraction="${a.id}">
-          <div class="ride-head"><span class="ride-num">${a.number}</span>${a.title}</div>
-          <div class="ride-art" aria-hidden="true">${icons[a.icon] || '✨'}</div>
-          <div class="ride-body">
-            <strong>${a.subtitle}</strong>
-            <p>${a.description}</p>
-            <div class="ride-cta">${done ? 'Ещё раз ▶' : 'Играть ▶'}</div>
-          </div>
-        </button>`;
-      })
-      .join('');
-    $('#attractions-grid').innerHTML = html;
-    $('#attractions-grid-2').innerHTML = html;
+  /* ---------- Journey unlock logic ---------- */
+  function attractionDone(id) {
+    return Boolean(state.progress?.attractions?.[id]?.completed);
   }
 
-  function renderMap() {
-    const map = $('#park-map');
-    const nodes = state.attractions
-      .map((a, i) => {
-        const pos = mapPositions[i];
-        const done = state.progress?.attractions?.[a.id]?.completed;
-        return `<button type="button" class="map-node ${done ? 'done' : ''}" style="left:${pos.left};top:${pos.top}" data-open-attraction="${a.id}" title="${a.title}">${done ? '★' : a.number}</button>`;
-      })
-      .join('');
-    const open = state.progress?.quizUnlocked;
-    map.innerHTML = `
-      <svg class="map-path" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M10 70 C 22 50, 30 55, 35 55 S 50 75, 55 70 S 70 40, 75 48 S 88 65, 90 60"
-          fill="none" stroke="#8d6e63" stroke-width="2.8" stroke-linecap="round" stroke-dasharray="4 2"/>
-      </svg>
-      ${nodes}
-      <div class="map-palace ${open ? 'open' : ''}" title="Дворец">🏰</div>
-    `;
-  }
-
-  function updatePalace() {
-    const unlocked = state.progress?.quizUnlocked;
-    const btn = $('#open-quiz-btn');
-    const status = $('#palace-status');
-    btn.disabled = !unlocked;
-    if (state.progress?.certificate) {
-      status.textContent = 'Ты чемпион парка! Диплом уже твой 🎉';
-      say('Диплом твой!');
-    } else if (unlocked) {
-      status.textContent = 'Дворец открыт! Пора на викторину!';
-      say('Дворец открыт!');
-    } else {
-      const left = (state.progress?.totalAttractions || 5) - (state.progress?.completedCount || 0);
-      status.textContent = left === 1 ? 'Остался 1 аттракцион!' : `Осталось аттракционов: ${left}`;
+  function currentStepIndex() {
+    const attrs = state.attractions;
+    for (let i = 0; i < attrs.length; i += 1) {
+      if (!attractionDone(attrs[i].id)) return i; // 0..4
     }
+    if (!state.journey.factsDone) return 5;
+    if (!state.journey.gamesDone) return 6;
+    if (!state.progress?.certificate && !state.progress?.quiz?.passed) return 7;
+    return 8; // finished
+  }
+
+  function isStepUnlocked(index) {
+    return index <= currentStepIndex();
+  }
+
+  function isStepDone(index) {
+    if (index < 5) return attractionDone(state.attractions[index]?.id);
+    if (index === 5) return state.journey.factsDone;
+    if (index === 6) return state.journey.gamesDone;
+    if (index === 7) return Boolean(state.progress?.quiz?.passed || state.progress?.certificate);
+    return Boolean(state.progress?.certificate);
+  }
+
+  function setProgress(progress) {
+    state.progress = progress;
+    const scoreEl = $('#score-value');
+    animateNumber(scoreEl, Number(scoreEl.textContent) || 0, progress.score || 0);
+    $('#stars-value').textContent = starString(progress.completedCount || 0);
+    const nameInput = $('#player-name');
+    if (document.activeElement !== nameInput) nameInput.value = progress.name || '';
+    const step = Math.min(8, currentStepIndex() + 1);
+    $('#step-progress').textContent = `${step}/8`;
+    renderCertificate();
+    renderJourney();
   }
 
   function renderCertificate() {
     const box = $('#certificate-view');
     const cert = state.progress?.certificate;
     if (!cert) {
-      box.innerHTML = `<p class="cert-empty">Диплом появится после викторины.</p>`;
+      box.innerHTML = `<p class="cert-empty">Диплом появится после финальной викторины.</p>`;
       return;
     }
     const date = new Date(cert.issuedAt).toLocaleDateString('ru-RU');
@@ -284,54 +219,165 @@
     `;
   }
 
-  function renderFacts() {
-    $('#facts-grid').innerHTML = state.facts
-      .map(
-        (f, i) => `
-      <article class="fact-card" style="animation-delay:${i * 0.05}s">
-        <div class="fact-emoji">${f.emoji || '💡'}</div>
-        <h3>${f.title}</h3>
-        <p>${f.text}</p>
-      </article>`
-      )
-      .join('');
-  }
+  function renderJourney() {
+    const root = $('#journey');
+    if (!root || !state.attractions.length) return;
+    const cur = currentStepIndex();
+    const quizUnlocked = isStepUnlocked(7);
+    const quizDone = isStepDone(7);
+    const preserveQuiz = state.quizSession && quizUnlocked && !quizDone;
+    const savedQuiz = preserveQuiz ? $('#quiz-panel')?.innerHTML : null;
 
-  function renderGames() {
-    $('#games-grid').innerHTML = state.games
-      .map((g) => {
-        const best = state.progress?.games?.[g.id]?.best;
+    const attrSteps = state.attractions
+      .map((a, i) => {
+        const done = isStepDone(i);
+        const unlocked = isStepUnlocked(i);
+        const locked = !unlocked;
+        const current = cur === i;
         return `
-        <article class="game-card">
-          <h3>${g.title}</h3>
-          <p>${g.description}</p>
-          <p style="font-weight:900;color:#2b8a3e">${best != null ? `Рекорд: ${best}` : 'Ещё не играли'}</p>
-          <button type="button" class="btn btn-primary" data-open-game="${g.id}">Играть</button>
+        <article class="journey-step theme-${a.theme} ${done ? 'done' : ''} ${locked ? 'locked' : ''} ${current ? 'current' : ''}" data-step="${i}">
+          <div class="journey-num">${done ? '★' : i + 1}</div>
+          <div class="journey-body">
+            <div class="journey-emoji">${icons[a.icon] || '⭐'}</div>
+            <h3>Шаг ${i + 1}. ${a.title}</h3>
+            <p>${a.description}</p>
+            ${
+              locked
+                ? `<p class="lock-note">🔒 Сначала пройди шаг ${i}</p>`
+                : `<button type="button" class="btn btn-primary" data-open-attraction="${a.id}">
+                    ${done ? 'Пройти ещё раз ▶' : 'Начать ▶'}
+                  </button>`
+            }
+          </div>
         </article>`;
       })
       .join('');
+
+    const factsUnlocked = isStepUnlocked(5);
+    const factsDone = isStepDone(5);
+    const factsStep = `
+      <article class="journey-step theme-blue ${factsDone ? 'done' : ''} ${!factsUnlocked ? 'locked' : ''} ${cur === 5 ? 'current' : ''}" data-step="5">
+        <div class="journey-num">${factsDone ? '★' : 6}</div>
+        <div class="journey-body">
+          <div class="journey-emoji">💡</div>
+          <h3>Шаг 6. Интересные факты</h3>
+          <p>Прочитай факты про числа — и нажми «Дальше».</p>
+          ${
+            !factsUnlocked
+              ? `<p class="lock-note">🔒 Сначала пройди все 5 аттракционов</p>`
+              : `<div class="facts-grid compact">${state.facts
+                  .map(
+                    (f) => `
+                <article class="fact-card">
+                  <div class="fact-emoji">${f.emoji || '💡'}</div>
+                  <h3>${f.title}</h3>
+                  <p>${f.text}</p>
+                </article>`
+                  )
+                  .join('')}</div>
+                ${
+                  factsDone
+                    ? `<p class="ok-msg">✅ Факты прочитаны</p>`
+                    : `<button type="button" class="btn btn-gold" id="facts-next-btn">Прочитал — дальше ▶</button>`
+                }`
+          }
+        </div>
+      </article>`;
+
+    const gamesUnlocked = isStepUnlocked(6);
+    const gamesDone = isStepDone(6);
+    const gamesStep = `
+      <article class="journey-step theme-orange ${gamesDone ? 'done' : ''} ${!gamesUnlocked ? 'locked' : ''} ${cur === 6 ? 'current' : ''}" data-step="6">
+        <div class="journey-num">${gamesDone ? '★' : 7}</div>
+        <div class="journey-body">
+          <div class="journey-emoji">🎮</div>
+          <h3>Шаг 7. Игра</h3>
+          <p>Сыграй хотя бы в одну игру — потом откроется викторина.</p>
+          ${
+            !gamesUnlocked
+              ? `<p class="lock-note">🔒 Сначала шаг 6</p>`
+              : `<div class="games-grid compact">${state.games
+                  .map((g) => {
+                    const best = state.progress?.games?.[g.id]?.best;
+                    return `
+                    <article class="game-card">
+                      <h3>${g.title}</h3>
+                      <p>${g.description}</p>
+                      <p style="font-weight:900;color:#2b8a3e">${best != null ? `Рекорд: ${best}` : 'Ещё не играли'}</p>
+                      <button type="button" class="btn btn-primary" data-open-game="${g.id}">Играть</button>
+                    </article>`;
+                  })
+                  .join('')}</div>
+                ${
+                  gamesDone
+                    ? `<p class="ok-msg">✅ Игра пройдена — можно к викторине!</p>`
+                    : `<p class="hint">После любой игры этот шаг закроется галочкой.</p>`
+                }`
+          }
+        </div>
+      </article>`;
+
+    const quizStep = `
+      <article class="journey-step theme-purple ${quizDone ? 'done' : ''} ${!quizUnlocked ? 'locked' : ''} ${cur === 7 ? 'current' : ''}" data-step="7" id="quiz-step">
+        <div class="journey-num">${quizDone ? '★' : 8}</div>
+        <div class="journey-body">
+          <div class="journey-emoji">🏆</div>
+          <h3>Шаг 8. Финальная викторина</h3>
+          <p>5 вопросов — и диплом чемпиона!</p>
+          ${
+            !quizUnlocked
+              ? `<p class="lock-note">🔒 Сначала пройди шаги 1–7</p>`
+              : `<div id="quiz-panel">
+                  <div id="quiz-play"></div>
+                  <div id="quiz-result" class="hidden"></div>
+                </div>`
+          }
+        </div>
+      </article>`;
+
+    root.innerHTML = attrSteps + factsStep + gamesStep + quizStep;
+
+    const factsBtn = $('#facts-next-btn');
+    if (factsBtn) {
+      factsBtn.onclick = () => {
+        state.journey.factsDone = true;
+        saveJourney();
+        sfx('ok');
+        confetti(20);
+        say('Дальше — игра!');
+        toast('Шаг 6 пройден!');
+        renderJourney();
+        scrollToStep(6);
+      };
+    }
+
+    if (preserveQuiz && savedQuiz) {
+      const panel = $('#quiz-panel');
+      if (panel) panel.innerHTML = savedQuiz;
+    } else if (quizUnlocked && !quizDone) {
+      state.quizSession = true;
+      startQuizPlay();
+    }
+
+    const currentEl = root.querySelector('.journey-step.current');
+    if (currentEl && !renderJourney._scrolled) {
+      renderJourney._scrolled = true;
+      setTimeout(() => currentEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
+    }
   }
 
-  function renderAbout() {
-    const a = state.about;
-    $('#about-panel').innerHTML = `
-      <div style="font-size:2.4rem;margin-bottom:.4rem">🦊🎡</div>
-      <h3 style="font-family:var(--font-display);color:#5b35d1;margin-top:0">${a.parkName}</h3>
-      <p>${a.text}</p>
-      <p><strong>Наша цель:</strong> ${a.mission}</p>
-      <p>Парк создала: <strong>${a.author}</strong></p>
-      <p class="teacher-note">Учителям: раздел «Ответы» открывается кодом <strong>1234</strong></p>
-    `;
+  function scrollToStep(index) {
+    renderJourney._scrolled = false;
+    const el = document.querySelector(`.journey-step[data-step="${index}"]`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  function showSection(id) {
+  function showView(id) {
     sfx('click');
-    $$('.section').forEach((s) => s.classList.toggle('active', s.id === id));
-    $$('.nav-chip').forEach((n) => n.classList.toggle('active', n.dataset.section === id));
-    if (id === 'quiz') updateQuizLock();
-    if (id === 'games') say('Выбирай игру!');
-    if (id === 'facts') say('Читай факты!');
+    $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${id}`));
+    $$('.nav-chip').forEach((n) => n.classList.toggle('active', n.dataset.view === id));
     if (id === 'answers') say('Только для взрослых!');
+    else say('Поехали!');
   }
 
   /* ---------- Modal ---------- */
@@ -356,10 +402,15 @@
     }).join('');
   }
 
-  /* ---------- Attractions: one question at a time ---------- */
+  /* ---------- Attractions ---------- */
   function startAttraction(id) {
-    const a = state.attractions.find((x) => x.id === id);
-    if (!a) return;
+    const idx = state.attractions.findIndex((x) => x.id === id);
+    if (idx < 0) return;
+    if (!isStepUnlocked(idx)) {
+      toast(`Сначала пройди шаг ${idx}`);
+      return;
+    }
+    const a = state.attractions[idx];
     sfx('click');
     say('Удачи!');
     openModal(a.title, icons[a.icon] || '✨');
@@ -373,17 +424,13 @@
       const p = a.problems[step];
       tries = 0;
       setDots(a.problems.length, step, correctness);
-
       let factBlock = '';
       if (a.facts?.length) {
-        const fact = a.facts[Math.min(step, a.facts.length - 1)];
-        factBlock = `<div class="facts-mini">🎁 ${fact}</div>`;
+        factBlock = `<div class="facts-mini">🎁 ${a.facts[Math.min(step, a.facts.length - 1)]}</div>`;
       }
-
       const choices = shuffle(p.options || [])
         .map((o) => `<button type="button" class="choice-btn" data-val="${escapeAttr(o)}">${o}</button>`)
         .join('');
-
       $('#modal-body').innerHTML = `
         <div class="play-screen">
           ${factBlock}
@@ -392,9 +439,7 @@
           <div class="play-prompt bounce-in">${p.prompt}</div>
           <div class="choice-grid">${choices}</div>
           <div class="feedback" id="step-feedback"></div>
-        </div>
-      `;
-
+        </div>`;
       $$('.choice-btn', $('#modal-body')).forEach((btn) => {
         btn.onclick = () => onChoose(btn, p);
       });
@@ -436,7 +481,7 @@
         setTimeout(async () => {
           step += 1;
           if (step < a.problems.length) renderStep();
-          else await finishAttraction(a, answers);
+          else await finishAttraction(a, answers, idx);
         }, 700);
         return;
       }
@@ -445,9 +490,8 @@
       btn.classList.add('wrong');
       sfx('bad');
       say('Ещё раз!');
-
       if (tries < 2) {
-        $('#step-feedback').textContent = 'Неверно — подумай и выбери другой ответ!';
+        $('#step-feedback').textContent = 'Неверно — выбери другой ответ!';
         setTimeout(() => {
           btn.classList.remove('wrong');
           $$('.choice-btn', $('#modal-body')).forEach((b) => {
@@ -457,101 +501,77 @@
         }, 700);
         return;
       }
-
-      // 2nd fail — skip without revealing answer
       answers[problem.id] = val;
       correctness[step] = false;
-      $('#step-feedback').textContent = 'Этот вопрос пропустим. Ответ — в книге ответов для учителя.';
+      $('#step-feedback').textContent = 'Этот вопрос пропустим. Ответ — в разделе «Ответы».';
       setTimeout(async () => {
         step += 1;
         if (step < a.problems.length) renderStep();
-        else await finishAttraction(a, answers);
+        else await finishAttraction(a, answers, idx);
       }, 1100);
     };
 
     renderStep();
   }
 
-  async function finishAttraction(a, answers) {
+  async function finishAttraction(a, answers, idx) {
     try {
       const data = await api(`/api/attractions/${a.id}/submit`, {
         method: 'POST',
         body: JSON.stringify({ answers }),
       });
-
-      const prevDone = state.progress?.attractions?.[a.id]?.completed;
       setProgress(data.progress);
-
+      $('#step-dots').innerHTML = data.results.map((r) => `<span class="${r.correct ? 'ok' : ''}"></span>`).join('');
       const lines = data.results
         .map((r, i) =>
           r.correct
-            ? `<div class="result-line ok">✅ Вопрос ${i + 1} — верно</div>`
-            : `<div class="result-line bad">❌ Вопрос ${i + 1} — пока неверно</div>`
+            ? `<div class="result-line ok">✅ Вопрос ${i + 1}</div>`
+            : `<div class="result-line bad">❌ Вопрос ${i + 1}</div>`
         )
         .join('');
-
-      $('#step-dots').innerHTML = data.results
-        .map((r) => `<span class="${r.correct ? 'ok' : ''}"></span>`)
-        .join('');
-
       $('#modal-body').innerHTML = `
         <div class="win-screen">
           <div class="big">${data.completed ? '🌟' : '💪'}</div>
           <h3 style="font-family:var(--font-display);color:#5b35d1;margin:.2rem 0">
-            ${data.completed ? a.encouragement || 'Аттракцион пройден!' : 'Почти! Попробуй ещё раз'}
+            ${data.completed ? a.encouragement || 'Шаг пройден!' : 'Почти! Попробуй ещё раз'}
           </h3>
           <p style="font-weight:900">Верно: ${data.correct}/${data.total} · +${data.scoreGain} очков</p>
           <div class="result-list">${lines}</div>
           <div class="end-actions">
-            ${data.completed ? '' : `<button type="button" class="btn btn-primary" id="retry-ride">Попробовать снова</button>`}
+            ${data.completed ? '' : `<button type="button" class="btn btn-primary" id="retry-ride">Ещё раз</button>`}
             <button type="button" class="btn btn-gold" id="close-ride">Дальше</button>
           </div>
-        </div>
-      `;
-
+        </div>`;
       if (data.completed) {
         sfx('win');
-        confetti(data.completed && !prevDone ? 60 : 28);
-        say('Звезда твоя!');
-        toast(prevDone ? 'Снова отлично!' : 'Новая звезда на карте! ⭐');
+        confetti(50);
+        say('Следующий шаг!');
+        toast(`Шаг ${idx + 1} пройден!`);
       } else {
         sfx('bad');
-        say('Ещё попытка!');
-        toast('Можно пройти аттракцион ещё раз');
         const retry = $('#retry-ride');
         if (retry) retry.onclick = () => startAttraction(a.id);
       }
-
-      $('#close-ride').onclick = closeModal;
+      $('#close-ride').onclick = () => {
+        closeModal();
+        if (data.completed) scrollToStep(Math.min(idx + 1, 7));
+      };
     } catch (err) {
       toast(err.message);
       closeModal();
     }
   }
 
-  /* ---------- Quiz one-by-one ---------- */
-  function updateQuizLock() {
-    const unlocked = state.progress?.quizUnlocked;
-    const locked = $('#quiz-locked');
-    const play = $('#quiz-play');
-    const result = $('#quiz-result');
-    if (!unlocked) {
-      locked.classList.remove('hidden');
-      play.classList.add('hidden');
-      result.classList.add('hidden');
-      return;
-    }
-    locked.classList.add('hidden');
-    if (!play.dataset.ready) startQuizPlay();
-  }
-
+  /* ---------- Quiz ---------- */
   async function startQuizPlay() {
     const play = $('#quiz-play');
+    if (!play) return;
     try {
       const data = await api('/api/quiz');
       play.dataset.ready = '1';
       play.classList.remove('hidden');
-      $('#quiz-result').classList.add('hidden');
+      const result = $('#quiz-result');
+      if (result) result.classList.add('hidden');
 
       const answers = {};
       let step = 0;
@@ -566,15 +586,11 @@
             <div class="play-prompt bounce-in">${q.prompt}</div>
             <div class="choice-grid">
               ${opts
-                .map(
-                  (o, i) =>
-                    `<button type="button" class="choice-btn" data-val="${escapeAttr(o)}">${String.fromCharCode(65 + i)}. ${o}</button>`
-                )
+                .map((o, i) => `<button type="button" class="choice-btn" data-val="${escapeAttr(o)}">${String.fromCharCode(65 + i)}. ${o}</button>`)
                 .join('')}
             </div>
             <div class="feedback" id="quiz-feedback"></div>
-          </div>
-        `;
+          </div>`;
         $$('.choice-btn', play).forEach((btn) => {
           btn.onclick = async () => {
             $$('.choice-btn', play).forEach((b) => {
@@ -595,7 +611,6 @@
               });
               return;
             }
-
             answers[q.id] = val;
             bumpStreak(ok);
             if (ok) {
@@ -606,9 +621,8 @@
             } else {
               btn.classList.add('wrong');
               sfx('bad');
-              $('#quiz-feedback').textContent = 'Запомнили ответ. Идём дальше!';
+              $('#quiz-feedback').textContent = 'Идём дальше!';
             }
-
             step += 1;
             setTimeout(async () => {
               if (step < qs.length) render();
@@ -619,14 +633,8 @@
       };
       render();
     } catch (e) {
-      lockedMsg(e.message);
+      play.innerHTML = `<p class="lock-note">${e.message}</p>`;
     }
-  }
-
-  function lockedMsg(msg) {
-    const locked = $('#quiz-locked');
-    locked.classList.remove('hidden');
-    locked.innerHTML = `<div class="lock-ico">🔒</div><p>${msg}</p>`;
   }
 
   async function submitQuiz(answers) {
@@ -635,10 +643,11 @@
       body: JSON.stringify({ answers }),
     });
     setProgress(data.progress);
+    const play = $('#quiz-play');
     const box = $('#quiz-result');
+    if (play) play.classList.add('hidden');
+    if (!box) return;
     box.classList.remove('hidden');
-    $('#quiz-play').classList.add('hidden');
-
     const lines = data.results
       .map((r, i) =>
         r.correct
@@ -646,32 +655,31 @@
           : `<div class="result-line bad">❌ Вопрос ${i + 1}</div>`
       )
       .join('');
-
     box.innerHTML = `
       <div class="win-screen">
         <div class="big">${data.passed ? '🏆' : '✨'}</div>
-        <p style="font-weight:900;font-size:1.2rem">
-          ${data.passed ? 'Победа! Ты чемпион!' : 'Почти получилось!'}
-        </p>
+        <p style="font-weight:900;font-size:1.2rem">${data.passed ? 'Победа! Ты чемпион!' : 'Почти получилось!'}</p>
         <p style="font-weight:800">Результат: ${data.correct}/${data.total}</p>
         <div class="result-list">${lines}</div>
         ${
           data.passed
-            ? '<p style="font-weight:900;color:#2b8a3e">Диплом открыт на главной!</p><button type="button" class="btn btn-gold" id="go-home-cert">Смотреть диплом</button>'
-            : '<p style="font-weight:800">Нужно минимум 3 из 5. Попробуй снова!</p><button type="button" class="btn btn-primary" id="retry-quiz">Ещё раз</button>'
+            ? '<p class="ok-msg">Смотри диплом ниже 👇</p>'
+            : '<button type="button" class="btn btn-primary" id="retry-quiz">Ещё раз</button>'
         }
-      </div>
-    `;
+      </div>`;
     if (data.passed) {
       sfx('win');
       confetti(80);
-      say('Чемпион!');
-      $('#go-home-cert').onclick = () => showSection('home');
+      say('Диплом твой!');
+      $('#certificate-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } else {
       sfx('bad');
-      say('Попробуй ещё!');
       $('#retry-quiz').onclick = () => {
-        $('#quiz-play').dataset.ready = '';
+        state.quizSession = true;
+        if (play) {
+          play.dataset.ready = '';
+          play.classList.remove('hidden');
+        }
         box.classList.add('hidden');
         startQuizPlay();
       };
@@ -680,35 +688,25 @@
 
   /* ---------- Answer book ---------- */
   function renderAnswerBook(book) {
-    const iconsMap = icons;
     const blocks = book.attractions
       .map(
         (a) => `
       <details class="key-block" open>
-        <summary>${iconsMap[a.icon] || '⭐'} ${a.number}. ${a.title}</summary>
-        <ol>
-          ${a.items.map((it) => `<li><span class="q">${it.prompt}</span> → <strong class="a">${it.answer}</strong></li>`).join('')}
-        </ol>
+        <summary>${icons[a.icon] || '⭐'} ${a.number}. ${a.title}</summary>
+        <ol>${a.items.map((it) => `<li><span class="q">${it.prompt}</span> → <strong class="a">${it.answer}</strong></li>`).join('')}</ol>
       </details>`
       )
       .join('');
-
     const quiz = `
       <details class="key-block" open>
         <summary>🏆 ${book.quiz.title}</summary>
-        <ol>
-          ${book.quiz.items.map((it) => `<li><span class="q">${it.prompt}</span> → <strong class="a">${it.answer}</strong></li>`).join('')}
-        </ol>
+        <ol>${book.quiz.items.map((it) => `<li><span class="q">${it.prompt}</span> → <strong class="a">${it.answer}</strong></li>`).join('')}</ol>
       </details>`;
-
     const gamesBlock = `
       <details class="key-block">
         <summary>🎮 ${book.games.title}</summary>
-        <ol>
-          ${book.games.items.map((it) => `<li><span class="q">${it.prompt}</span> → <strong class="a">${it.answer}</strong></li>`).join('')}
-        </ol>
+        <ol>${book.games.items.map((it) => `<li><span class="q">${it.prompt}</span> → <strong class="a">${it.answer}</strong></li>`).join('')}</ol>
       </details>`;
-
     $('#answers-book').innerHTML = blocks + quiz + gamesBlock;
   }
 
@@ -717,10 +715,7 @@
     const err = $('#answers-error');
     err.classList.add('hidden');
     try {
-      const data = await api('/api/answer-book', {
-        method: 'POST',
-        body: JSON.stringify({ pin }),
-      });
+      const data = await api('/api/answer-book', { method: 'POST', body: JSON.stringify({ pin }) });
       renderAnswerBook(data.book);
       $('#answers-lock').classList.add('hidden');
       $('#answers-book').classList.remove('hidden');
@@ -744,6 +739,10 @@
 
   /* ---------- Games ---------- */
   function openGame(id) {
+    if (!isStepUnlocked(6)) {
+      toast('Сначала пройди предыдущие шаги');
+      return;
+    }
     const game = state.games.find((g) => g.id === id);
     if (!game) return;
     sfx('click');
@@ -777,13 +776,23 @@
     return kinds[randInt(0, kinds.length - 1)]();
   }
 
+  function markGameDone() {
+    if (!state.journey.gamesDone) {
+      state.journey.gamesDone = true;
+      saveJourney();
+      toast('Шаг 7 пройден!');
+      say('Пора на викторину!');
+    }
+    renderJourney();
+    scrollToStep(7);
+  }
+
   function openTimedGame(game) {
     let left = game.durationSec;
     let correct = 0;
     let total = 0;
     let current = makeExpr();
     let buf = '';
-
     openModal(game.title, '⏱️');
     const paint = () => {
       $('#modal-body').innerHTML = `
@@ -793,12 +802,9 @@
           <div class="big" id="g-prompt">${current.prompt} = ?</div>
           <div class="answer-display" id="g-buf">${buf || '—'}</div>
           <div class="num-pad" id="num-pad">
-            ${[1, 2, 3, 4, 5, 6, 7, 8, 9, '⌫', 0, 'OK']
-              .map((n) => `<button type="button" data-n="${n}">${n}</button>`)
-              .join('')}
+            ${[1, 2, 3, 4, 5, 6, 7, 8, 9, '⌫', 0, 'OK'].map((n) => `<button type="button" data-n="${n}">${n}</button>`).join('')}
           </div>
-        </div>
-      `;
+        </div>`;
       $('#num-pad').onclick = (e) => {
         const b = e.target.closest('button');
         if (!b) return;
@@ -810,14 +816,12 @@
         sfx('click');
       };
     };
-
     const submitAns = () => {
       total += 1;
       if (Number(buf) === current.answer) {
         correct += 1;
         bumpStreak(true);
         sfx('ok');
-        say(pick(praise));
         confetti(8);
       } else {
         bumpStreak(false);
@@ -832,7 +836,6 @@
       }
       paint();
     };
-
     paint();
     const tick = setInterval(() => {
       left -= 1;
@@ -845,45 +848,31 @@
         finishGame(game.id, correct, Math.max(total, 1));
       }
     }, 1000);
-
     $('#modal-close').addEventListener('click', () => clearInterval(tick), { once: true });
   }
 
   async function openMemoryGame(game) {
     let pairs = game.pairs;
     if (!pairs) {
-      try {
-        const data = await api(`/api/games/${game.id}/start`);
-        pairs = data.pairs;
-      } catch (err) {
-        toast(err.message);
-        return;
-      }
+      const data = await api(`/api/games/${game.id}/start`);
+      pairs = data.pairs;
     }
-
     const cards = [];
     pairs.forEach((p, i) => {
       cards.push({ pair: i, text: p.q });
       cards.push({ pair: i, text: p.a });
     });
     cards.sort(() => Math.random() - 0.5);
-
     let open = [];
     let matched = 0;
     let locked = false;
-
     openModal(game.title, '🧠');
     $('#modal-body').innerHTML = `
       <div class="memory-grid" id="memory-grid">
         ${cards
-          .map(
-            (c, i) =>
-              `<button type="button" class="memory-card" data-i="${i}" data-pair="${c.pair}" data-text="${escapeAttr(c.text)}">?</button>`
-          )
+          .map((c, i) => `<button type="button" class="memory-card" data-i="${i}" data-pair="${c.pair}" data-text="${escapeAttr(c.text)}">?</button>`)
           .join('')}
-      </div>
-    `;
-
+      </div>`;
     $('#memory-grid').onclick = async (e) => {
       const btn = e.target.closest('.memory-card');
       if (!btn || locked || btn.classList.contains('matched') || btn.classList.contains('open')) return;
@@ -925,7 +914,6 @@
   function openBalloonGame(game) {
     let round = 0;
     let correct = 0;
-
     const next = () => {
       round += 1;
       if (round > game.rounds) {
@@ -947,8 +935,7 @@
           <div class="balloon-row">
             ${list.map((v) => `<button type="button" class="balloon-btn" data-v="${v}">${v}</button>`).join('')}
           </div>
-        </div>
-      `;
+        </div>`;
       $$('.balloon-btn').forEach((b) => {
         b.onclick = () => {
           if (Number(b.dataset.v) === expr.answer) {
@@ -973,31 +960,31 @@
       body: JSON.stringify({ correct, total }),
     });
     setProgress(data.progress);
-    renderGames();
+    markGameDone();
     openModal('Результат', '🎉');
     $('#modal-body').innerHTML = `
       <div class="win-screen">
         <div class="big">🌟</div>
         <p class="big" style="font-size:2rem">${correct}/${total}</p>
         <p style="font-weight:900">Очки добавлены!</p>
-        <button type="button" class="btn btn-gold" id="close-game-result">Круто!</button>
-      </div>
-    `;
+        <button type="button" class="btn btn-gold" id="close-game-result">Дальше к викторине</button>
+      </div>`;
     sfx('win');
-    say(pick(praise));
-    $('#close-game-result').onclick = closeModal;
+    $('#close-game-result').onclick = () => {
+      closeModal();
+      scrollToStep(7);
+    };
   }
 
   /* ---------- Bindings ---------- */
   function bindUI() {
     $$('.nav-chip').forEach((btn) => {
-      btn.addEventListener('click', () => showSection(btn.dataset.section));
+      btn.addEventListener('click', () => showView(btn.dataset.view));
     });
 
     document.body.addEventListener('click', (e) => {
       const attr = e.target.closest('[data-open-attraction]');
       if (attr) startAttraction(attr.dataset.openAttraction);
-
       const gameBtn = e.target.closest('[data-open-game]');
       if (gameBtn) openGame(gameBtn.dataset.openGame);
     });
@@ -1009,8 +996,6 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeModal();
     });
-
-    $('#open-quiz-btn').onclick = () => showSection('quiz');
 
     $('#sound-btn').onclick = () => {
       state.soundOn = !state.soundOn;
@@ -1042,16 +1027,17 @@
     $('#reset-btn').onclick = async () => {
       if (!confirm('Начать сначала и стереть прогресс?')) return;
       const data = await api('/api/reset', { method: 'POST', body: '{}' });
-      $('#quiz-play').dataset.ready = '';
-      $('#quiz-play').innerHTML = '';
+      state.journey = { factsDone: false, gamesDone: false };
+      saveJourney();
+      state.quizSession = false;
       state.streak = 0;
       bumpStreak(false);
       setProgress(data.progress);
-      renderGames();
       hideAnswers();
       toast('Прогресс сброшен');
       say('Новый старт!');
-      showSection('home');
+      showView('park');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     $('#answers-unlock-btn').onclick = unlockAnswers;
@@ -1060,27 +1046,27 @@
       if (e.key === 'Enter') unlockAnswers();
     });
 
-    // unlock audio on first gesture
-    const unlock = () => {
-      ensureAudio();
-      window.removeEventListener('pointerdown', unlock);
-    };
-    window.addEventListener('pointerdown', unlock);
+    window.addEventListener(
+      'pointerdown',
+      () => {
+        ensureAudio();
+      },
+      { once: true }
+    );
   }
 
   async function init() {
+    state.journey = loadJourney();
     bindUI();
     const data = await api('/api/bootstrap');
     state.about = data.about;
     state.facts = data.facts;
     state.games = data.games;
     state.attractions = data.attractions;
+    $('#about-text').innerHTML = `${data.about.text} Парк создала: <strong>${data.about.author}</strong>. Учителям: ответы — код <strong>1234</strong>.`;
     setProgress(data.progress);
-    renderFacts();
-    renderGames();
-    renderAbout();
-    showSection('home');
-    say('Давай играть!');
+    showView('park');
+    say('Поехали по порядку!');
   }
 
   init().catch((err) => {
